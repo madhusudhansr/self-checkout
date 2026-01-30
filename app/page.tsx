@@ -152,6 +152,14 @@ export default function Home() {
 
   const totalPrice = cart.reduce((sum, item) => sum + item.price, 0);
 
+  const handlePay = () => {
+    setPaymentStatus('processing');
+    setTimeout(() => {
+      setPaymentStatus('completed');
+      setCart([]);
+    }, 2000);
+  };
+
   return (
     <div className="min-h-screen bg-black text-white font-sans selection:bg-indigo-500 selection:text-white">
       <div className="max-w-md mx-auto min-h-screen flex flex-col relative overflow-hidden bg-neutral-900 shadow-2xl">
