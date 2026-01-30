@@ -92,10 +92,11 @@ export default function Home() {
           setQuantity(1); // Default to 1
           setShowQuantityModal(true);
         } else {
-          // Optional: Show quick error toast 
-          alert("Product not found! Switch to 'Add' mode.");
-          // Reset debounce so they can try again
-          setTimeout(() => setLastScanned(null), 2000);
+          // Silently ignore products not found as per user request
+          // We just let the scanner continue running until it hits a valid one
+          console.log("Product not found, ignoring.");
+          // Reset last scanned quickly so they can re-try if it was a mistake or move on
+          setTimeout(() => setLastScanned(null), 1000);
         }
       } catch (err) {
         console.error("API error", err);
