@@ -9,10 +9,23 @@ type Product = {
   price: number;
 };
 
+type Mode = 'checkout' | 'add-product';
+
 export default function Home() {
+  const [mode, setMode] = useState<Mode>('checkout');
+
+  // Checkout State
   const [cart, setCart] = useState<Product[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'completed'>('idle');
+
+  // Add Product State
+  const [newProductId, setNewProductId] = useState('');
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductPrice, setNewProductPrice] = useState('');
+  const [addStatus, setAddStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+
+  // Shared State
+  const [isScanning, setIsScanning] = useState(false);
   const [lastScanned, setLastScanned] = useState<string | null>(null);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
@@ -29,41 +42,34 @@ export default function Home() {
     }
 
     return () => {
-      if (!isScanning && scannerRef.current) {
-        scannerRef.current.clear().catch(error => {
-          console.error("Failed to clear scanner. ", error);
-        });
-        scannerRef.current = null;
-      }
+      // Cleanup logic if needed
     };
-  }, [isScanning]);
+  }, [isScanning, mode]); // Re-init if mode changes? No, handle logic in callback
 
   const onScanSuccess = async (decodedText: string, decodedResult: any) => {
-    if (decodedText === lastScanned) return; // Debounce same scan
+    if (decodedText === lastScanned) return;
     setLastScanned(decodedText);
 
-    // Stop scanning temporarily after success to avoid double addition
-    // Ideally we'd pause, but for now we just handle it via lastScanned check
-    // or we can allow continuous scanning.
-
-    try {
-      const res = await fetch(`/api/get-product?id=${decodedText}`);
-      if (res.ok) {
-        const product = await res.json();
-        setCart(prev => [...prev, product]);
-        // Optional: Audio feedback
-        // const audio = new Audio('/beep.mp3'); audio.play();
-      } else {
-        console.error("Product not found");
-        alert("Product not found!");
+    if (mode === 'checkout') {
+      try {
+        const res = await fetch(`/api/get-product?id=${decodedText}`);
+        if (res.ok) {
+          const product = await res.json();
+          setCart(prev => [...prev, product]);
+        } else {
+          alert("Product not found! Switch to 'Add Mode' to add it.");
+        }
+      } catch (err) {
+        console.error("API error", err);
       }
-    } catch (err) {
-      console.error("API error", err);
+    } else if (mode === 'add-product') {
+      setNewProductId(decodedText);
+      // Stop scanning automatically for convenience when adding? 
+      // Optionally: toggleScanner();
     }
   };
 
   const onScanFailure = (error: any) => {
-    // handle scan failure, usually better to ignore and keep scanning.
     // console.warn(`Code scan error = ${error}`);
   };
 
@@ -79,7 +85,36 @@ export default function Home() {
       }
     } else {
       setIsScanning(true);
-      setLastScanned(null); // Reset debounce
+      setLastScanned(null);
+    }
+  };
+
+  const handleAddProduct = async () => {
+    setAddStatus('saving');
+    try {
+      const res = await fetch('/api/add-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newProductId,
+          name: newProductName,
+          price: parseFloat(newProductPrice)
+        })
+      });
+
+      if (res.ok) {
+        setAddStatus('success');
+        setNewProductId('');
+        setNewProductName('');
+        setNewProductPrice('');
+        setTimeout(() => setAddStatus('idle'), 2000);
+      } else {
+        setAddStatus('error');
+        const data = await res.json();
+        alert(data.error || 'Failed to add');
+      }
+    } catch (err) {
+      setAddStatus('error');
     }
   };
 
@@ -94,8 +129,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-900 text-white font-sans selection:bg-indigo-500 selection:text-white">
-      <div className="max-w-md mx-auto min-h-screen flex flex-col relative overflow-hidden bg-black shadow-2xl shadow-indigo-500/20">
+    <div className="min-h-screen bg-neutral-900 text-white font-sans">
+      <div className="max-w-md mx-auto min-h-screen flex flex-col relative overflow-hidden bg-black shadow-2xl">
 
         {/* Header */}
         <header className="p-6 flex items-center justify-between z-10 bg-black/80 backdrop-blur-md sticky top-0 border-b border-white/10">
@@ -103,11 +138,24 @@ export default function Home() {
             <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
               Scan & Go
             </h1>
-            <p className="text-xs text-neutral-400">Self-checkout experience</p>
+            <p className="text-xs text-neutral-400">
+              {mode === 'checkout' ? 'Self-checkout' : 'Admin: Add Product'}
+            </p>
           </div>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold">
-            U
-          </div>
+          <button
+            onClick={() => {
+              setMode(mode === 'checkout' ? 'add-product' : 'checkout');
+              setCart([]); // Clear cart on switch for safety/simplicity
+              setIsScanning(false); // Reset scanner logic
+              if (scannerRef.current) {
+                scannerRef.current.clear().catch(console.error);
+                scannerRef.current = null;
+              }
+            }}
+            className="px-3 py-1 rounded-full text-xs font-bold bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
+          >
+            Switch to {mode === 'checkout' ? 'Add' : 'Shop'}
+          </button>
         </header>
 
         {/* Main Content */}
@@ -119,12 +167,6 @@ export default function Home() {
               <div id="reader" className="w-full h-full"></div>
             ) : (
               <div className="flex flex-col items-center gap-4 text-neutral-500">
-                <div className="w-16 h-16 rounded-xl border-2 border-dashed border-neutral-600 flex items-center justify-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" />
-                  </svg>
-                </div>
                 <p>Tap 'Scan' to start</p>
               </div>
             )}
@@ -132,83 +174,109 @@ export default function Home() {
 
           <button
             onClick={toggleScanner}
-            className={`w-full py-4 rounded-xl font-semibold transition-all active:scale-95 shadow-lg ${isScanning ? 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20' : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:shadow-indigo-500/25'}`}
+            className={`w-full py-4 rounded-xl font-semibold transition-all active:scale-95 shadow-lg ${isScanning ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-indigo-600 text-white'}`}
           >
-            {isScanning ? 'Stop Scanning' : 'Scan Product'}
+            {isScanning ? 'Stop Scanning' : 'Scan Code'}
           </button>
 
-          {/* Cart List */}
-          <div className="flex-1 flex flex-col gap-4">
-            <div className="flex items-center justify-between text-sm text-neutral-400">
-              <span>Current Cart</span>
-              <span>{cart.length} items</span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-3 pb-24">
-              {cart.length === 0 ? (
-                <div className="text-center py-10 text-neutral-600 italic">
-                  No items yet. Start scanning!
-                </div>
-              ) : (
-                cart.map((item, idx) => (
-                  <div key={idx + item.id} className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center text-lg">
-                        🛒
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="font-medium text-white">{item.name}</span>
-                        <span className="text-xs text-neutral-400">ID: {item.id}</span>
-                      </div>
+          {/* MODE: CHECKOUT */}
+          {mode === 'checkout' && (
+            <div className="flex-1 flex flex-col gap-4">
+              <div className="flex items-center justify-between text-sm text-neutral-400">
+                <span>Cart ({cart.length})</span>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-3 pb-24">
+                {cart.map((item, idx) => (
+                  <div key={idx + item.id} className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-white">{item.name}</span>
+                      <span className="text-xs text-neutral-400">{item.id}</span>
                     </div>
                     <span className="font-semibold text-emerald-400">${item.price.toFixed(2)}</span>
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-        </main>
+                ))}
+              </div>
 
-        {/* Floating Action / Total Panel */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/95 to-transparent z-20">
-          <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl">
-            <div className="flex items-end justify-between mb-4">
-              <span className="text-neutral-400">Total</span>
-              <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-300">
-                ${totalPrice.toFixed(2)}
+              {/* Total & Pay */}
+              <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-20 max-w-md mx-auto">
+                <div className="bg-neutral-900 border border-white/10 rounded-2xl p-5 shadow-2xl">
+                  <div className="flex justify-between mb-4">
+                    <span>Total</span>
+                    <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-300">
+                      ${totalPrice.toFixed(2)}
+                    </span>
+                  </div>
+                  <button
+                    disabled={cart.length === 0}
+                    onClick={handlePay}
+                    className="w-full py-3 rounded-xl bg-white text-black font-bold disabled:opacity-50"
+                  >
+                    {paymentStatus === 'processing' ? 'Processing...' : 'Pay Now'}
+                  </button>
+                </div>
               </div>
             </div>
+          )}
 
-            <button
-              disabled={cart.length === 0}
-              onClick={() => setPaymentStatus('processing')}
-              className="w-full py-4 rounded-xl bg-white text-black font-bold text-lg hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {paymentStatus === 'processing' ? 'Processing...' : 'Checkout & Pay'}
-              {paymentStatus !== 'processing' && (
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
+          {/* MODE: ADD PRODUCT */}
+          {mode === 'add-product' && (
+            <div className="flex flex-col gap-4 bg-neutral-900/50 p-4 rounded-xl border border-white/5">
+              <h2 className="text-lg font-bold">Add New Product</h2>
+
+              <div>
+                <label className="text-xs text-neutral-400">Scanned ID</label>
+                <input
+                  type="text"
+                  value={newProductId}
+                  onChange={e => setNewProductId(e.target.value)}
+                  placeholder="Scan or type ID"
+                  className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-400">Product Name</label>
+                <input
+                  type="text"
+                  value={newProductName}
+                  onChange={e => setNewProductName(e.target.value)}
+                  placeholder="e.g. Apple"
+                  className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-400">Price</label>
+                <input
+                  type="number"
+                  value={newProductPrice}
+                  onChange={e => setNewProductPrice(e.target.value)}
+                  placeholder="0.00"
+                  step="0.01"
+                  className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-white"
+                />
+              </div>
+
+              <button
+                onClick={handleAddProduct}
+                disabled={!newProductId || !newProductName || !newProductPrice || addStatus === 'saving'}
+                className="w-full py-3 mt-2 rounded-xl bg-emerald-600 text-white font-bold disabled:opacity-50"
+              >
+                {addStatus === 'saving' ? 'Saving...' : 'Save Product'}
+              </button>
+              {addStatus === 'success' && <p className="text-center text-emerald-400">Saved successfully!</p>}
+            </div>
+          )}
+
+        </main>
 
         {/* Payment Success Overlay */}
         {paymentStatus === 'completed' && (
-          <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
-            <div className="w-24 h-24 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center mb-6">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-12 h-12">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9.135-9.135" />
-              </svg>
-            </div>
-            <h2 className="text-3xl font-bold text-white mb-2">Payment Successful!</h2>
-            <p className="text-neutral-400 mb-8">Your order has been placed.</p>
+          <div className="absolute inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-6 text-center">
+            <h2 className="text-3xl font-bold text-white mb-2">Paid!</h2>
             <button
               onClick={() => setPaymentStatus('idle')}
-              className="px-8 py-3 rounded-full border border-white/20 hover:bg-white/10 transition-colors"
+              className="mt-8 px-8 py-3 rounded-full border border-white/20 hover:bg-white/10"
             >
-              Start New Scan
+              New Order
             </button>
           </div>
         )}
