@@ -254,7 +254,7 @@ export default function Home() {
                   </div>
                   <button
                     disabled={cart.length === 0}
-                    onClick={() => setPaymentStatus('processing')}
+                    onClick={handlePay}
                     className="bg-emerald-500 hover:bg-emerald-400 text-black px-8 py-4 rounded-2xl font-bold transition-all disabled:opacity-50 disabled:grayscale"
                   >
                     {paymentStatus === 'processing' ? 'Processing...' : 'Pay Now'}
